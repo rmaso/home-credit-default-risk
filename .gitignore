@@ -1,0 +1,4 @@
+data/*
+data_zip/*
+*.pdf
+.ipynb_checkpoints/*
