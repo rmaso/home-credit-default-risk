@@ -321,6 +321,68 @@ In this plot, the red indicates loans that were not repaid and the blue are loan
 
 ### Algorithms and Techniques
 
+The solution will consist of the application of 4 machine learning models using various techniques:
+
+  * LightGBM
+  * XGBoost
+  * Random Forest
+  * Neural Network)
+
+This 4 models will be compared against the Benchmark and against each other using the metrics area under the ROC and MAE. The 3 best models will be assembled in such a way as to provide a more robust and generalizable final model.
+
+LightGBM, XGBoost and Random Forest are the methods that I usually use in Kaggle competitions and works very fine. Neural networks always work badly for me for these kinds of problems, but I always try to use them and learn from their behavior.
+
+All the techniques applied during the development of the models will be carried out by fixing the seeds in such a way that the solution can be reproduced and occurs more than once.
+
+#### LightGBM
+LightGBM is a gradient boosting framework that uses tree based learning algorithms. It is designed to be distributed and efficient with the following advantages:
+
+  * Faster training speed and higher efficiency
+  * Lower memory usage
+  * Better accuracy
+  * Parallel and GPU learning supported
+  * Capable of handling large-scale data
+
+Light GBM grows tree vertically while other algorithm grows trees horizontally meaning that Light GBM grows tree leaf-wise while other algorithm grows level-wise. It will choose the leaf with max delta loss to grow. When growing the same leaf, Leaf-wise algorithm can reduce more loss than a level-wise algorithm (https://medium.com/@pushkarmandot/https-medium-com-pushkarmandot-what-is-lightgbm-how-to-implement-it-how-to-fine-tune-the-parameters-60347819b7fc)
+
+LightGBM is being widely-used in many [winning solutions of machine learning competitions](https://github.com/Microsoft/LightGBM/blob/master/examples/README.md#machine-learning-challenge-winning-solutions).
+
+#### XGBoost
+XGBoost implements machine learning algorithms under the Gradient Boosting framework. XGBoost provides a parallel tree boosting (also known as GBDT, GBM) that solve many data science problems in a fast and accurate way. T
+
+XGBoost is extensively used by machine learning practitioners, this is a short [list of machine learning winning solutions with XGBoost](https://github.com/dmlc/xgboost/blob/master/demo/README.md#machine-learning-challenge-winning-solutions).
+
+#### Random Forest
+Random forests or random decision forests are an ensemble learning method for classification, regression and other tasks, that operate by constructing a multitude of decision trees at training time and outputting the class that is the mode of the classes (classification) or mean prediction (regression) of the individual trees.[1][2] Random decision forests correct for decision trees' habit of overfitting to their training set.
+
+Random Forest is being overtaken by the winners of machine learning competitions by XGBoost, LightGBM or Neural Networks, but it is still widely used to make assembled models.
+
+#### Neural Networks
+As the “neural” part of their name suggests, they are brain-inspired systems which are intended to replicate the way that we humans learn. Neural networks consist of input and output layers, as well as (in most cases) a hidden layer consisting of units that transform the input into something that the output layer can use.
+
+For the type of problem we are dealing with, my experience tells me that the neural network will work worse than the other algorithms. Anyway, I like to test the neural networks and learn about their behavior and the best way to configure them.
+
+
+### Benchmark
+
+To get a baseline, we will use all of the features after encoding the categorical variables. We will preprocess the data by filling in the missing values (imputation) and normalizing the range of the features (feature scaling).
+
+We will use LogisticRegressionfrom Scikit-Learn for our first model. The only change we will make from the default model settings is to lower the regularization parameter, C, which controls the amount of overfitting (a lower value should decrease overfitting). This will get us slightly better results than the default LogisticRegression, but it still will set a low bar for any future models.
+
+Here we use the familiar Scikit-Learn modeling syntax: we first create the model, then we train the model using .fit and then we make predictions on the testing data using .predict_proba (remember that we want probabilities and not a 0 or 1).
+
+We want to predict the probabilities of not paying a loan, so we use the model predict.proba method. This returns an m x 2 array where m is the number of observations. The first column is the probability of the target being 0 and the second column is the probability of the target being 1 (so for a single row, the two columns must sum to 1). We want the probability the loan is not repaid, so we will select the second column.
+
+Our baseline scores are:
+
+* ROC AUC: 0.71
+* MAE: 0.14
+
+
+
+## III. Methodology
+
+### Data Preprocessing
 
 #### Missing Values
 Next we can look at the number and percentage of missing values in each column. For example, for the application_train.csv has 122 columns and there are 67 columns that have missing values:
@@ -399,32 +461,6 @@ To do this we will use skLearn's MinMaxScaler. Also known as min-max scaling or 
 
 x' is the normalized value.
 
-
-### Benchmark
-
-To get a baseline, we will use all of the features after encoding the categorical variables. We will preprocess the data by filling in the missing values (imputation) and normalizing the range of the features (feature scaling).
-
-We will use LogisticRegressionfrom Scikit-Learn for our first model. The only change we will make from the default model settings is to lower the regularization parameter, C, which controls the amount of overfitting (a lower value should decrease overfitting). This will get us slightly better results than the default LogisticRegression, but it still will set a low bar for any future models.
-
-Here we use the familiar Scikit-Learn modeling syntax: we first create the model, then we train the model using .fit and then we make predictions on the testing data using .predict_proba (remember that we want probabilities and not a 0 or 1).
-
-We want to predict the probabilities of not paying a loan, so we use the model predict.proba method. This returns an m x 2 array where m is the number of observations. The first column is the probability of the target being 0 and the second column is the probability of the target being 1 (so for a single row, the two columns must sum to 1). We want the probability the loan is not repaid, so we will select the second column.
-
-Our baseline scores are:
-
-* ROC AUC: 0.71
-* MAE: 0.14
-
-
-
-## III. Methodology
-_(approx. 3-5 pages)_
-
-### Data Preprocessing
-In this section, all of your preprocessing steps will need to be clearly documented, if any were necessary. From the previous section, any of the abnormalities or characteristics that you identified about the dataset will be addressed and corrected here. Questions to ask yourself when writing this section:
-- _If the algorithms chosen require preprocessing steps like feature selection or feature transformations, have they been properly documented?_
-- _Based on the **Data Exploration** section, if there were abnormalities or characteristics that needed to be addressed, have they been properly corrected?_
-- _If no preprocessing is needed, has it been made clear why?_
 
 ### Implementation
 In this section, the process for which metrics, algorithms, and techniques that you implemented for the given data will need to be clearly documented. It should be abundantly clear how the implementation was carried out, and discussion should be made regarding any complications that occurred during this process. Questions to ask yourself when writing this section:
