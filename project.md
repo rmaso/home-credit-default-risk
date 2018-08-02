@@ -468,11 +468,251 @@ In this section, the process for which metrics, algorithms, and techniques that 
 - _Were there any complications with the original metrics or techniques that required changing prior to acquiring a solution?_
 - _Was there any part of the coding process (e.g., writing complicated functions) that should be documented?_
 
+To carry out the development of the models and all the preprocessing of the data, basically two libraries have been used:
+
+* scikit-learn: http://scikit-learn.org/stable/
+* LightGBM: https://github.com/Microsoft/LightGBM
+
+Additionally, libraries have been used to create graphs:
+
+* seaborn: https://seaborn.pydata.org/
+* plotly: https://plot.ly/
+
+In order to simplify the testing of the models and to test the hyperparameters of the models, functions have been developed to encapsulate the training phase. For this purpose, an input parameter is used for the particular parameters of the model to be trained. For example, the following function has been developed for LightGBM:
+
+```python
+from sklearn.model_selection import KFold
+from sklearn.metrics import roc_auc_score
+import lightgbm as lgb
+from sklearn.utils.multiclass import type_of_target
+
+import gc
+
+def model(features, test_features, lgbm_params, n_folds = 5): 
+    """Train and test a light gradient boosting model using
+    cross validation. 
+    
+    Parameters
+    --------
+        features (pd.DataFrame): 
+            dataframe of training features to use 
+            for training a model. Must include the TARGET column.
+        test_features (pd.DataFrame): 
+            dataframe of testing features to use
+            for making predictions with the model. 
+        
+    Return
+    --------
+        feature_importances (pd.DataFrame): 
+            dataframe with the feature importances from the model.
+        valid_metrics (pd.DataFrame): 
+            dataframe with training and validation metrics (ROC AUC) for each fold and overall.
+        
+    """
+    
+    # Extract the ids
+    train_ids = features['SK_ID_CURR']
+    test_ids = test_features['SK_ID_CURR']
+    
+    # Extract the labels for training
+    labels = np.array(features['TARGET'].astype(int))
+    
+    # Remove the ids and target
+    features = features.drop(columns = ['SK_ID_CURR', 'TARGET'])
+    test_features = test_features.drop(columns = ['SK_ID_CURR', 'TARGET'])
+    
+    print('Training Data Shape: ', features.shape)
+    print('Testing Data Shape: ', test_features.shape)
+    
+    # Extract feature names
+    feature_names = list(features.columns)
+    
+    # Convert to np arrays
+    features = np.array(features)
+    test_features = np.array(test_features)
+    
+    # Create the kfold object
+    k_fold = KFold(n_splits = n_folds, shuffle = True, random_state = 50)
+    
+    # Empty array for feature importances
+    feature_importance_values = np.zeros(len(feature_names))
+    
+    # Empty array for test predictions
+    test_predictions = np.zeros(test_features.shape[0])
+    
+    # Empty array for out of fold validation predictions
+    out_of_fold = np.zeros(features.shape[0])
+    
+    # Lists for recording validation and training scores
+    valid_scores = []
+    train_scores = []
+    
+    # Iterate through each fold
+    for train_indices, valid_indices in k_fold.split(features):
+        
+        # Training data for the fold
+        train_features, train_labels = features[train_indices], labels[train_indices]
+        # Validation data for the fold
+        valid_features, valid_labels = features[valid_indices], labels[valid_indices]
+        
+        # Create the model
+        model = lgb.LGBMClassifier(application="binary", boosting_type=lgbm_params["boosting"],
+                          learning_rate=lgbm_params["learning_rate"],n_estimators=lgbm_params["n_estimators"],
+                          reg_alpha = lgbm_params["reg_alpha"], reg_lambda = lgbm_params["reg_lambda"], 
+                          drop_rate=lgbm_params["drop_rate"],
+                          num_leaves=lgbm_params["num_leaves"], max_depth=lgbm_params["max_depth"],
+                          max_bin=lgbm_params["max_bin"],
+                          subsample = 0.8, n_jobs = -1, random_state = 50)
+        
+        # Train the model
+        model.fit(train_features, train_labels, eval_metric = ['auc', 'mae'],
+                  eval_set = [(valid_features, valid_labels), (train_features, train_labels)],
+                  eval_names = ['valid', 'train'],
+                  early_stopping_rounds = 200, verbose = 200)
+        
+        # Record the best iteration
+        best_iteration = model.best_iteration_
+        
+        # Record the feature importances
+        feature_importance_values += model.feature_importances_ / k_fold.n_splits
+        
+        # Make predictions
+        test_predictions += model.predict_proba(test_features, num_iteration = best_iteration)[:, 1] / k_fold.n_splits
+        
+        # Record the out of fold predictions
+        out_of_fold[valid_indices] = model.predict_proba(valid_features, num_iteration = best_iteration)[:, 1]
+        
+        # Record the best score
+        valid_score = model.best_score_['valid']['auc']
+        train_score = model.best_score_['train']['auc']
+        
+        valid_scores.append(valid_score)
+        train_scores.append(train_score)
+        
+        # Clean up memory
+        gc.enable()
+        del model, train_features, valid_features
+        gc.collect()
+        
+    # Make the feature importance dataframe
+    feature_importances = pd.DataFrame({'feature': feature_names, 'importance': feature_importance_values})
+    
+    # Overall validation score
+    valid_auc = roc_auc_score(labels, out_of_fold)
+    
+    # Add the overall scores to the metrics
+    valid_scores.append(valid_auc)
+    train_scores.append(np.mean(train_scores))
+    
+    # Needed for creating dataframe of validation scores
+    fold_names = list(range(n_folds))
+    fold_names.append('overall')
+    
+    # Dataframe of validation scores
+    metrics = pd.DataFrame({'fold': fold_names,
+                            'train': train_scores,
+                            'valid': valid_scores}) 
+    
+    return feature_importances, metrics
+```
+
+And to generate the graph of the importance of the variables:
+
+```python
+def plot_feature_importances(df):
+    """
+    Plot importances returned by a model. This can work with any measure of
+    feature importance provided that higher importance is better. 
+    
+    Args:
+        df (dataframe): feature importances. Must have the features in a column
+        called `features` and the importances in a column called `importance
+        
+    Returns:
+        shows a plot of the 15 most importance features
+        
+        df (dataframe): feature importances sorted by importance (highest to lowest) 
+        with a column for normalized importance
+        """
+    
+    # Sort features according to importance
+    df = df.sort_values('importance', ascending = False).reset_index()
+    
+    # Normalize the feature importances to add up to one
+    df['importance_normalized'] = df['importance'] / df['importance'].sum()
+
+    # Make a horizontal bar chart of feature importances
+    plt.figure(figsize = (10, 6))
+    ax = plt.subplot()
+    
+    # Need to reverse the index to plot most important on top
+    ax.barh(list(reversed(list(df.index[:15]))), 
+            df['importance_normalized'].head(15), 
+            align = 'center', edgecolor = 'k')
+    
+    # Set the yticks and labels
+    ax.set_yticks(list(reversed(list(df.index[:15]))))
+    ax.set_yticklabels(df['feature'].head(15))
+    
+    # Plot labeling
+    plt.xlabel('Normalized Importance'); plt.title('Feature Importances')
+    plt.show()
+    
+    return df
+```
+
 ### Refinement
 In this section, you will need to discuss the process of improvement you made upon the algorithms and techniques you used in your implementation. For example, adjusting parameters for certain models to acquire improved solutions would fall under the refinement category. Your initial and final solutions should be reported, as well as any significant intermediate results as necessary. Questions to ask yourself when writing this section:
 - _Has an initial solution been found and clearly reported?_
 - _Is the process of improvement clearly documented, such as what techniques were used?_
 - _Are intermediate and final solutions clearly reported as the process is improved?_
+
+En una primera fase del entrenamiento de cada modelo, se ha realizado con un conjunto discreto de parametros. Esto nos ha permitido aprender como le afectan los parametros al comportamiento del modelo. Despues se ha procedido a realizar un GridSearch de los parametros finales que le aplicaremos al modelo. Este busqueda se realiza con Cross Validation de 5 Folds.
+
+
+Por ejemplo, para el LightGBM:
+
+```python
+param_grid = {
+    "boosting": ["gbdt", "dart"],
+    "application":["binary"],
+    'learning_rate': [0.01, 0.1, 1, 10],
+    'reg_alpha': [0.01, 0.1, 1],
+    'reg_lambda': [0.01, 0.1, 1],
+    "n_estimators": [10000],
+    "max_depth": [3, 5, 7],
+    'num_leaves': [31, 127],
+    "max_bin": [225],
+    'feature_fraction': [0.5, 1.0],
+    'bagging_fraction': [0.75, 0.95], 
+    "drop_rate": [0.02]
+    }
+
+lgbc_fit_params = {
+    "eval_names": ['valid', 'train'],
+    "eval_set" : [[test, test_labels]],
+    'eval_metric' : ['auc', 'mae'], # string, list of strings, callable or None, optional (default=None)
+    'early_stopping_rounds' : 200, # int or None, optional (default=None)
+    'verbose': 200
+}
+
+lgb_Classifier = lgb.LGBMClassifier(
+                         bagging_freq=5,
+                         eval_metric=['auc', 'mae'],
+                         subsample = 0.8, n_jobs = -1, random_state = 50)
+
+gsearch = GridSearchCV(estimator=lgb_Classifier, 
+                       param_grid=param_grid, 
+                       fit_params=lgbc_fit_params,
+                       cv=k_fold,
+                       return_train_score=True,
+                       scoring='roc_auc') 
+
+lgb_model = gsearch.fit(X=train, 
+                        y=train_labels)
+
+```
+
 
 
 ## IV. Results
