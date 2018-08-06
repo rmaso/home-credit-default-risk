@@ -470,13 +470,16 @@ In this section, the process for which metrics, algorithms, and techniques that 
 
 To carry out the development of the models and all the preprocessing of the data, basically two libraries have been used:
 
-* scikit-learn: http://scikit-learn.org/stable/
-* LightGBM: https://github.com/Microsoft/LightGBM
+* [scikit-learn](http://scikit-learn.org/stable/)
+* [LightGBM](https://github.com/Microsoft/LightGBM)
+* [XGBoost](https://github.com/dmlc/xgboost)
+* [Keras](https://github.com/keras-team/keras)
+* [TensorFlow](https://github.com/tensorflow/tensorflow)
 
 Additionally, libraries have been used to create graphs:
 
-* seaborn: https://seaborn.pydata.org/
-* plotly: https://plot.ly/
+* [seaborn](https://seaborn.pydata.org/)
+* [plotly](https://plot.ly/)
 
 In order to simplify the testing of the models and to test the hyperparameters of the models, functions have been developed to encapsulate the training phase. For this purpose, an input parameter is used for the particular parameters of the model to be trained. For example, the following function has been developed for LightGBM:
 
@@ -662,15 +665,146 @@ def plot_feature_importances(df):
 ```
 
 ### Refinement
-In this section, you will need to discuss the process of improvement you made upon the algorithms and techniques you used in your implementation. For example, adjusting parameters for certain models to acquire improved solutions would fall under the refinement category. Your initial and final solutions should be reported, as well as any significant intermediate results as necessary. Questions to ask yourself when writing this section:
-- _Has an initial solution been found and clearly reported?_
-- _Is the process of improvement clearly documented, such as what techniques were used?_
-- _Are intermediate and final solutions clearly reported as the process is improved?_
 
-En una primera fase del entrenamiento de cada modelo, se ha realizado con un conjunto discreto de parametros. Esto nos ha permitido aprender como le afectan los parametros al comportamiento del modelo. Despues se ha procedido a realizar un GridSearch de los parametros finales que le aplicaremos al modelo. Este busqueda se realiza con Cross Validation de 5 Folds.
+En una primera fase del entrenamiento de cada modelo, se ha realizado con un conjunto discreto de parametros. Esto nos ha permitido aprender como le afectan los parametros al comportamiento del modelo. Por ejemplo, para el modelo de lightGBM inicie el entrenamiento con el siguiente conjunto de parametros:
 
+```python
+lgbm_params = {
+    "boosting":"dart",
+    "application":"binary",
+    "learning_rate": 0.1,
+    'reg_alpha':0.01,
+    'reg_lambda': 0.01,
+    "n_estimators":10000,
+    "max_depth":7,
+    "num_leaves":100,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 200
+}
+```
 
-Por ejemplo, para el LightGBM:
+Esto nos proporcionaba el siguiente resultado:
+
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.877069 |  0.129895 |  0.754396 |  0.137714 |
+|      1 |  0.899392 |  0.127401 |  0.751671 |  0.138821 |
+|      2 |  0.918464 |  0.123621 |  0.741702 |  0.136253 |
+|      3 |  0.903891 |  0.125270 |  0.754107 |  0.137266 |
+|      4 |  0.877004 |  0.130056 |  0.746761 |  0.140161 |
+|overall |  0.895164 |  0.127249 |  0.743577 |  0.174889 |
+
+Como podemos observar entre el los valores de training y de test hay mucha diferencia para ambas métricas (auc y mae). Esto significa que estamos sobreajustando el modelo y que generaliza mal. Para intentar evitarlo, vamos a aumentar los parametros de reg_alpha, reg_lambda y num_leaves.
+
+```python
+lgbm_params = {
+    "boosting":"gbdt",
+    "application":"binary",
+    "learning_rate": 0.1,
+    'reg_alpha':0.1,
+    'reg_lambda': 0.1,
+    "n_estimators":10000,
+    "max_depth":7,
+    "num_leaves":200,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 200
+}
+```
+
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.857283 |  0.128797 |  0.754204 |  0.135583 |
+|      1 |  0.864312 |  0.127534 |  0.750568 |  0.136090 |
+|      2 |  0.865789 |  0.127649 |  0.741182 |  0.134877 |
+|      3 |  0.859313 |  0.128261 |  0.750489 |  0.136315 |
+|      4 |  0.841988 |  0.130212 |  0.748010 |  0.137620 |
+|overall |  0.857737 |  0.128491 |  0.748855 |  0.136097 |
+
+Observamos que hemos reducido el sobreajuste pero sigue siendo excesivo. Vaos a reducir el max_depth a ver como le afecta al modelo:
+
+```python
+lgbm_params = {
+    "boosting":"gbdt",
+    "application":"binary",
+    "learning_rate": 0.1,
+    'reg_alpha':0.1,
+    'reg_lambda': 0.1,
+    "n_estimators":10000,
+    "max_depth":5,
+    "num_leaves":200,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 200
+}
+```
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.809402 |  0.133003 |  0.756757 |  0.135961 |
+|      1 |  0.800085 |  0.133561 |  0.752171 |  0.137080 |
+|      2 |  0.817467 |  0.132307 |  0.742536 |  0.135511 |
+|      3 |  0.804870 |  0.133318 |  0.754814 |  0.136936 |
+|      4 |  0.802916 |  0.132993 |  0.749148 |  0.137526 |
+|overall |  0.806948 |  0.133036 |  0.751054 |  0.136603 |
+
+Con esto conseguimos reducir bastante el sobreajuste y mejorar los resultados en el conjunto de test. Vamos a seguir aumentando el reg_alpha y reg_lambda para ver como se comporta el modelo
+
+```python
+lgbm_params = {
+    "boosting":"gbdt",
+    "application":"binary",
+    "learning_rate": 0.1,
+    'reg_alpha':10,
+    'reg_lambda': 10,
+    "n_estimators":10000,
+    "max_depth":5,
+    "num_leaves":200,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 200
+}
+```
+
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.804923 |  0.132783 |  0.758607 |  0.135634 |
+|      1 |  0.810282 |  0.131917 |  0.755165 |  0.136259 |
+|      2 |  0.839153 |  0.129431 |  0.744734 |  0.134666 |
+|      3 |  0.802204 |  0.132817 |  0.757222 |  0.136272 |
+|      4 |  0.786282 |  0.133990 |  0.750687 |  0.137447 |
+|overall |  0.808569 |  0.132187 |  0.753242 |  0.136055 |
+
+Con estos nuevos parametros sigue mejorando el modelo y reduciendose el sobreajuste. Aumentemos un poco más reg_alpha y reg_lambda
+
+```python
+lgbm_params = {
+    "boosting":"gbdt",
+    "application":"binary",
+    "learning_rate": 0.1,
+    'reg_alpha':100,
+    'reg_lambda': 100,
+    "n_estimators":10000,
+    "max_depth":5,
+    "num_leaves":200,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 200
+}
+```
+
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.762467 |  0.136550 |  0.755720 |  0.136691 |
+|      1 |  0.762417 |  0.136328 |  0.751304 |  0.137598 |
+|      2 |  0.765354 |  0.136652 |  0.738559 |  0.136303 |
+|      3 |  0.762273 |  0.136332 |  0.753829 |  0.137300 |
+|      4 |  0.763035 |  0.135850 |  0.747742 |  0.137952 |
+|overall |  0.763109 |  0.136342 |  0.749405 |  0.137169 |
+
+Estos parametros eliminan el sobre ajuste del modelo pero nos está empezando a reducir el ajuste del modelo en el conjunto de test. Es por ello que nos quedaremos con los parametros previos como el conjunto de parametros optimo.
+
+La idea inicial era realizar un GridSearch alrededor de los parametros optimos para intentar mejorarlos de forma sistemática. Debido a la falta de tiempo no lo voy a poder hacer y será una mejora que podriamos aplicar al proyecto en fases posteriores. Esta búsqueda se podria realizar con Cross Validation de 5 Fold para el LightGBM con el siguiente código:
 
 ```python
 param_grid = {
@@ -713,6 +847,34 @@ lgb_model = gsearch.fit(X=train,
 
 ```
 
+Una vez determinado el conjunto de parametros que mejor funcionan para cada modelo, se realiza un nuevo entrenamiento con estos pero reduciendo el learning_rate y aumentando el early_stopping_round. Esto nos permite conseguir un modelo más preciso:
+
+```python
+lgbm_params = {
+    "boosting":"gbdt",
+    "application":"binary",
+    "learning_rate": 0.01,
+    'reg_alpha':10,
+    'reg_lambda': 10,
+    "n_estimators":10000,
+    "max_depth":5,
+    "num_leaves":200,
+    "max_bin":225,
+    "drop_rate":0.02,
+    "early_stopping_rounds": 500
+}
+```
+
+|   fold | train auc | train mae | valid auc | valid mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.799976 |  0.133356 |  0.759345 |  0.135787 |
+|      1 |  0.824688 |  0.130651 |  0.756150 |  0.136032 |
+|      2 |  0.838521 |  0.129669 |  0.745448 |  0.134684 |
+|      3 |  0.806708 |  0.132529 |  0.757741 |  0.136270 |
+|      4 |  0.799670 |  0.132761 |  0.750934 |  0.137081 |
+|overall |  0.813913 |  0.131793 |  0.753863 |  0.135971 |
+
+
 
 
 ## IV. Results
@@ -724,6 +886,18 @@ In this section, the final model and any supporting qualities should be evaluate
 - _Has the final model been tested with various inputs to evaluate whether the model generalizes well to unseen data?_
 - _Is the model robust enough for the problem? Do small perturbations (changes) in training data or the input space greatly affect the results?_
 - _Can results found from the model be trusted?_
+
+#### LightGBM
+
+#### XGBoost
+
+#### Random Forest
+
+#### Neural Network
+
+
+
+
 
 ### Justification
 In this section, your model’s final solution and its results should be compared to the benchmark you established earlier in the project using some type of statistical analysis. You should also justify whether these results and the solution are significant enough to have solved the problem posed in the project. Questions to ask yourself when writing this section:
