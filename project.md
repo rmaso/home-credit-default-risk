@@ -14,7 +14,7 @@ Home Credit is a non-banking financial institution, founded in 1997 in the Czech
 
 Many people struggle to get loans due to insufficient or non-existent credit histories. Home Credit strives to broaden financial inclusion for the unbanked population by providing a positive and safe borrowing experience. In order to make sure this underserved population has a positive loan experience, Home Credit makes use of a variety of alternative data--including telco and transactional information--to predict their clients' repayment abilities. While Home Credit is currently using various statistical and machine learning methods to make these predictions, they're challenging Kagglers to help them unlock the full potential of their data
 
-#### Data
+#### Data
 The data is provided by Home Credit. Predicting whether or not a client will repay a loan or have difficulty is a critical business need, and Home Credit is hosting this competition on Kaggle to see what sort of models the machine learning community can develop to help them in this task.
 
 There are 3 different sources of data:
@@ -43,7 +43,7 @@ Moreover, we are provided with the definitions of all the columns (in HomeCredit
 * The dataset contains 1.716.428 rows with 17 columns
 * There are a lot of columns with 50%-60% of missing data. This should be troublesome.
 
-##### previous_application.csv
+##### previous_application.csv
 * All previous applications for Home Credit loans of clients who have loans in our sample.
 * There is one row for each previous application related to loans in our data sample.
 * The dataset contains 1.670.214 rows with 37 columns
@@ -487,47 +487,63 @@ In order to simplify the testing of the models and to test the hyperparameters o
 
 ```python
 from sklearn.model_selection import KFold
-from sklearn.metrics import roc_auc_score
-import lightgbm as lgb
+from sklearn.metrics import roc_auc_score, mean_absolute_error
 from sklearn.utils.multiclass import type_of_target
 
 import gc
 
-def model(features, test_features, lgbm_params, n_folds = 5): 
-    """Train and test a light gradient boosting model using
-    cross validation. 
+def model(model_func, features, test_features, params, validation_features=None, n_folds = 5): 
+    """Train, test and validation a model using cross validation. 
     
     Parameters
     --------
+        model_func:
+            Function call that train the specific model
         features (pd.DataFrame): 
             dataframe of training features to use 
             for training a model. Must include the TARGET column.
         test_features (pd.DataFrame): 
             dataframe of testing features to use
             for making predictions with the model. 
+        params
+            Params set that will be passed to the model
+        validation_features (pd.DataFrame): 
+            dataframe of validation features to use
+            for making predictions with the model. 
+        
         
     Return
     --------
         feature_importances (pd.DataFrame): 
             dataframe with the feature importances from the model.
-        valid_metrics (pd.DataFrame): 
-            dataframe with training and validation metrics (ROC AUC) for each fold and overall.
-        
+        metrics (pd.DataFrame): 
+            dataframe with training and validation metrics (ROC AUC, MAE) for each fold and overall.
+        validation_metrics (pd.DataFrame): 
+            dataframe with metrics (ROC AUC, MAE) for validation dataframe.
     """
     
     # Extract the ids
     train_ids = features['SK_ID_CURR']
     test_ids = test_features['SK_ID_CURR']
+    if validation_features is not None:
+        validation_ids = test_features['SK_ID_CURR']
     
     # Extract the labels for training
     labels = np.array(features['TARGET'].astype(int))
+    test_labels = np.array(test_features['TARGET'].astype(int))
+    if validation_features is not None:
+        validation_labels = np.array(validation_features['TARGET'].astype(int))
     
     # Remove the ids and target
-    features = features.drop(columns = ['SK_ID_CURR', 'TARGET'])
-    test_features = test_features.drop(columns = ['SK_ID_CURR', 'TARGET'])
+    features = features.drop(['SK_ID_CURR', 'TARGET'], axis=1)
+    test_features = test_features.drop(['SK_ID_CURR', 'TARGET'], axis=1)
+    if validation_features is not None:
+        validation_features = validation_features.drop(['SK_ID_CURR', 'TARGET'], axis=1)
     
     print('Training Data Shape: ', features.shape)
     print('Testing Data Shape: ', test_features.shape)
+    if validation_features is not None:
+        print('Validation Data Shape: ', test_features.shape)
     
     # Extract feature names
     feature_names = list(features.columns)
@@ -535,7 +551,9 @@ def model(features, test_features, lgbm_params, n_folds = 5):
     # Convert to np arrays
     features = np.array(features)
     test_features = np.array(test_features)
-    
+    if validation_features is not None:
+        validation_features = np.array(validation_features)
+        
     # Create the kfold object
     k_fold = KFold(n_splits = n_folds, shuffle = True, random_state = 50)
     
@@ -544,13 +562,17 @@ def model(features, test_features, lgbm_params, n_folds = 5):
     
     # Empty array for test predictions
     test_predictions = np.zeros(test_features.shape[0])
-    
+    if validation_features is not None:
+        validation_predictions = np.zeros(validation_features.shape[0])
+        
     # Empty array for out of fold validation predictions
     out_of_fold = np.zeros(features.shape[0])
     
     # Lists for recording validation and training scores
-    valid_scores = []
-    train_scores = []
+    valid_scores_auc = []
+    train_scores_auc = []
+    valid_scores_mae = []
+    train_scores_mae = []
     
     # Iterate through each fold
     for train_indices, valid_indices in k_fold.split(features):
@@ -560,54 +582,41 @@ def model(features, test_features, lgbm_params, n_folds = 5):
         # Validation data for the fold
         valid_features, valid_labels = features[valid_indices], labels[valid_indices]
         
-        # Create the model
-        model = lgb.LGBMClassifier(application="binary", boosting_type=lgbm_params["boosting"],
-                          learning_rate=lgbm_params["learning_rate"],n_estimators=lgbm_params["n_estimators"],
-                          reg_alpha = lgbm_params["reg_alpha"], reg_lambda = lgbm_params["reg_lambda"], 
-                          drop_rate=lgbm_params["drop_rate"],
-                          num_leaves=lgbm_params["num_leaves"], max_depth=lgbm_params["max_depth"],
-                          max_bin=lgbm_params["max_bin"],
-                          subsample = 0.8, n_jobs = -1, random_state = 50)
-        
-        # Train the model
-        model.fit(train_features, train_labels, eval_metric = ['auc', 'mae'],
-                  eval_set = [(valid_features, valid_labels), (train_features, train_labels)],
-                  eval_names = ['valid', 'train'],
-                  early_stopping_rounds = 200, verbose = 200)
-        
-        # Record the best iteration
-        best_iteration = model.best_iteration_
-        
+        valid_score_auc, train_score_auc, valid_score_mae, train_score_mae, feature_importance_values_l, test_predictions_l, validation_predictions_l = model_func(train_features, train_labels, valid_features, valid_labels, test_features, validation_features, params)
+
         # Record the feature importances
-        feature_importance_values += model.feature_importances_ / k_fold.n_splits
-        
+        feature_importance_values += feature_importance_values_l / k_fold.n_splits
+
         # Make predictions
-        test_predictions += model.predict_proba(test_features, num_iteration = best_iteration)[:, 1] / k_fold.n_splits
+        test_predictions += test_predictions_l / k_fold.n_splits
+        if validation_features is not None:
+            validation_predictions += validation_predictions_l / k_fold.n_splits
         
-        # Record the out of fold predictions
-        out_of_fold[valid_indices] = model.predict_proba(valid_features, num_iteration = best_iteration)[:, 1]
-        
-        # Record the best score
-        valid_score = model.best_score_['valid']['auc']
-        train_score = model.best_score_['train']['auc']
-        
-        valid_scores.append(valid_score)
-        train_scores.append(train_score)
+        valid_scores_auc.append(valid_score_auc)
+        train_scores_auc.append(train_score_auc)
+        valid_scores_mae.append(valid_score_mae)
+        train_scores_mae.append(train_score_mae)
         
         # Clean up memory
         gc.enable()
-        del model, train_features, valid_features
+        del train_features, valid_features
         gc.collect()
         
     # Make the feature importance dataframe
     feature_importances = pd.DataFrame({'feature': feature_names, 'importance': feature_importance_values})
     
     # Overall validation score
-    valid_auc = roc_auc_score(labels, out_of_fold)
+    valid_auc = roc_auc_score(test_labels, test_predictions)
+    valid_mae = mean_absolute_error(test_labels, test_predictions)
+    if validation_features is not None:
+        validation_auc = roc_auc_score(validation_labels, validation_predictions)
+        validation_mae = mean_absolute_error(validation_labels, validation_predictions)
     
     # Add the overall scores to the metrics
-    valid_scores.append(valid_auc)
-    train_scores.append(np.mean(train_scores))
+    valid_scores_auc.append(valid_auc)
+    train_scores_auc.append(np.mean(train_scores_auc))
+    valid_scores_mae.append(valid_mae)
+    train_scores_mae.append(np.mean(train_scores_mae))
     
     # Needed for creating dataframe of validation scores
     fold_names = list(range(n_folds))
@@ -615,55 +624,58 @@ def model(features, test_features, lgbm_params, n_folds = 5):
     
     # Dataframe of validation scores
     metrics = pd.DataFrame({'fold': fold_names,
-                            'train': train_scores,
-                            'valid': valid_scores}) 
-    
-    return feature_importances, metrics
-```
+                            'train auc': train_scores_auc,
+                            'test auc': valid_scores_auc,
+                            'train mae': train_scores_mae,
+                            'test mae': valid_scores_mae}) 
 
-And to generate the graph of the importance of the variables:
-
-```python
-def plot_feature_importances(df):
-    """
-    Plot importances returned by a model. This can work with any measure of
-    feature importance provided that higher importance is better. 
-    
-    Args:
-        df (dataframe): feature importances. Must have the features in a column
-        called `features` and the importances in a column called `importance
+    if validation_features is not None:
+        validation_metrics = pd.DataFrame({'auc': [validation_auc],
+                                           'mae': [validation_mae]}) 
+    else:
+        validation_metrics = None
         
-    Returns:
-        shows a plot of the 15 most importance features
-        
-        df (dataframe): feature importances sorted by importance (highest to lowest) 
-        with a column for normalized importance
-        """
-    
-    # Sort features according to importance
-    df = df.sort_values('importance', ascending = False).reset_index()
-    
-    # Normalize the feature importances to add up to one
-    df['importance_normalized'] = df['importance'] / df['importance'].sum()
 
-    # Make a horizontal bar chart of feature importances
-    plt.figure(figsize = (10, 6))
-    ax = plt.subplot()
+    return feature_importances, metrics, validation_metrics
+
+import lightgbm as lgb
+
+def train_LGBMClassifier(train_features, train_labels, valid_features, valid_labels, test_features, validation_features, params):
+    # Create the model
+    model = lgb.LGBMClassifier(application="binary", boosting_type=params["boosting"],
+                      learning_rate=params["learning_rate"],n_estimators=params["n_estimators"],
+                      reg_alpha = params["reg_alpha"], reg_lambda = params["reg_lambda"], 
+                      drop_rate=params["drop_rate"],
+                      num_leaves=params["num_leaves"], max_depth=params["max_depth"],
+                      max_bin=params["max_bin"],
+                      subsample = 0.8, n_jobs = -1, random_state = 50)
     
-    # Need to reverse the index to plot most important on top
-    ax.barh(list(reversed(list(df.index[:15]))), 
-            df['importance_normalized'].head(15), 
-            align = 'center', edgecolor = 'k')
+    # Train the model
+    model.fit(train_features, train_labels, eval_metric = ['auc', 'mae'],
+              eval_set = [(valid_features, valid_labels), (train_features, train_labels)],
+              eval_names = ['valid', 'train'],
+              early_stopping_rounds = params["early_stopping_rounds"], verbose = 200)
     
-    # Set the yticks and labels
-    ax.set_yticks(list(reversed(list(df.index[:15]))))
-    ax.set_yticklabels(df['feature'].head(15))
+    # Record the best iteration
+    best_iteration = model.best_iteration_
     
-    # Plot labeling
-    plt.xlabel('Normalized Importance'); plt.title('Feature Importances')
-    plt.show()
+    # Record the feature importances
+    feature_importance_values = model.feature_importances_
     
-    return df
+    # Make predictions
+    test_predictions = model.predict_proba(test_features, num_iteration = best_iteration)[:, 1]
+    if validation_features is not None:
+        validation_predictions = model.predict_proba(validation_features, num_iteration = best_iteration)[:, 1]
+    else:
+        validation_predictions=None
+        
+    # Record the best score
+    valid_score_auc = model.best_score_['valid']['auc']
+    train_score_auc = model.best_score_['train']['auc']
+    valid_score_mae = model.best_score_['valid']['l1']
+    train_score_mae = model.best_score_['train']['l1']
+
+    return valid_score_auc, train_score_auc, valid_score_mae, train_score_mae, feature_importance_values, test_predictions, validation_predictions
 ```
 
 ### Refinement
@@ -688,7 +700,7 @@ lgbm_params = {
 
 Esto nos proporcionaba el siguiente resultado:
 
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.877069 |  0.129895 |  0.754396 |  0.137714 |
 |      1 |  0.899392 |  0.127401 |  0.751671 |  0.138821 |
@@ -715,7 +727,7 @@ lgbm_params = {
 }
 ```
 
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.857283 |  0.128797 |  0.754204 |  0.135583 |
 |      1 |  0.864312 |  0.127534 |  0.750568 |  0.136090 |
@@ -741,7 +753,7 @@ lgbm_params = {
     "early_stopping_rounds": 200
 }
 ```
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.809402 |  0.133003 |  0.756757 |  0.135961 |
 |      1 |  0.800085 |  0.133561 |  0.752171 |  0.137080 |
@@ -768,7 +780,7 @@ lgbm_params = {
 }
 ```
 
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.804923 |  0.132783 |  0.758607 |  0.135634 |
 |      1 |  0.810282 |  0.131917 |  0.755165 |  0.136259 |
@@ -795,7 +807,7 @@ lgbm_params = {
 }
 ```
 
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.762467 |  0.136550 |  0.755720 |  0.136691 |
 |      1 |  0.762417 |  0.136328 |  0.751304 |  0.137598 |
@@ -867,7 +879,7 @@ lgbm_params = {
 }
 ```
 
-|   fold | train auc | train mae | valid auc | valid mae |
+|   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.799976 |  0.133356 |  0.759345 |  0.135787 |
 |      1 |  0.824688 |  0.130651 |  0.756150 |  0.136032 |
@@ -880,7 +892,6 @@ lgbm_params = {
 
 
 ## IV. Results
-_(approx. 2-3 pages)_
 
 ### Model Evaluation and Validation
 In this section, the final model and any supporting qualities should be evaluated in detail. It should be clear how the final model was derived and why this model was chosen. In addition, some type of analysis should be used to validate the robustness of this model and its solution, such as manipulating the input data or environment to see how the model’s solution is affected (this is called sensitivity analysis). Questions to ask yourself when writing this section:
@@ -891,13 +902,85 @@ In this section, the final model and any supporting qualities should be evaluate
 
 #### LightGBM
 
+Final model for Train and Test sets:
+
+|   fold | train auc | train mae |  test auc |  test mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.799976 |  0.133356 |  0.759345 |  0.135787 |
+|      1 |  0.824688 |  0.130651 |  0.756150 |  0.136032 |
+|      2 |  0.838521 |  0.129669 |  0.745448 |  0.134684 |
+|      3 |  0.806708 |  0.132529 |  0.757741 |  0.136270 |
+|      4 |  0.799670 |  0.132761 |  0.750934 |  0.137081 |
+|overall |  0.813913 |  0.131793 |  0.755136 |  0.134778 |
+
+And for Validation set:
+
+| validation auc | validation mae  |
+|--------:|----------:|
+| 0.75427 |  0.136778 |
+
+Feature Importance
+![LightGBM Feature Importance](resources/images/lightgbm_feature_importance.png)
+
 #### XGBoost
 
+Final model for Train and Test sets:
+
+|   fold | train auc | train mae |  test auc |  test mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.800356 |  0.175951 |  0.760208 |  0.179332 |
+|      1 |  0.815663 |  0.173102 |  0.756419 |  0.178766 |
+|      2 |  0.832357 |  0.170903 |  0.745785 |  0.177056 |
+|      3 |  0.805345 |  0.174835 |  0.758861 |  0.179310 |
+|      4 |  0.808089 |  0.173899 |  0.751224 |  0.179472 |
+|overall |  0.812362 |  0.173738 |  0.753815 |  0.177272 |
+
+And for Validation set:
+
+| validation auc | validation mae  |
+|--------:|----------:|
+| 0.75406 | 0.178741  |
+
+Feature Importance
+![XGBoost Feature Importance](resources/images/xgboost_feature_importance.png)
+
+
 #### Random Forest
+
+Final model for Train and Test sets:
+
+|   fold | train auc | train mae |  test auc |  test mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.815903 |  0.373415 |  0.745989 |  0.380471 |
+|      1 |  0.815756 |  0.372505 |  0.740438 |  0.381075 |
+|      2 |  0.816085 |  0.371522 |  0.729519 |  0.380275 |
+|      3 |  0.815061 |  0.372933 |  0.744043 |  0.380089 |
+|      4 |  0.815200 |  0.372551 |  0.736795 |  0.380621 |
+|overall |  0.815601 |  0.372585 |  0.739247 |  0.379972 |
+
+And for Validation set:
+
+| validation auc | validation mae  |
+|--------:|----------:|
+| 0.741533 | 0.379821  |
+
+Feature Importance
+![RandomForest Feature Importance](resources/images/RandomForest_feature_importance.png)
+
 
 #### Neural Network
 
 
+#### LightGBM + XGBoost
+
+|   fold | test auc | test mae | validation auc | validation mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.753623 |  0.156608 |  0.753465 |  0.158393 |
+|      1 |  0.753727 |  0.155767 |  0.753058 |  0.157511 |
+|      2 |  0.753032 |  0.155429 |  0.753366 |  0.157099 |
+|      3 |  0.752972 |  0.156461 |  0.753559 |  0.158090 |
+|      4 |  0.753734 |  0.155860 |  0.752580 |  0.157704 |
+|overall |  0.754721 |  0.156025 |  0.754565 |  0.157760 |
 
 
 
@@ -909,7 +992,6 @@ In this section, your model’s final solution and its results should be compare
 
 
 ## V. Conclusion
-_(approx. 1-2 pages)_
 
 ### Free-Form Visualization
 In this section, you will need to provide some form of visualization that emphasizes an important quality about the project. It is much more free-form, but should reasonably support a significant result or characteristic about the problem that you want to discuss. Questions to ask yourself when writing this section:
@@ -924,20 +1006,35 @@ In this section, you will summarize the entire end-to-end problem solution and d
 - _Were there any difficult aspects of the project?_
 - _Does the final model and solution fit your expectations for the problem, and should it be used in a general setting to solve these types of problems?_
 
+In this project, we saw how to get started with a machine learning problem. We first made sure to understand the data, our task, and the metric by which our submissions will be judged. Then, we performed a EDA to try and identify relationships, trends, or anomalies that may help our modeling. Along the way, we performed necessary preprocessing steps such as encoding categorical variables, imputing missing values, and scaling features to a range. Then, we constructed new features out of the existing data to see if doing so could help our model.
+
+Once the data exploration, data preparation, and feature engineering was complete, we implemented a baseline model upon which we hope to improve. 
+
+Once the baseline was developed, we trained 4 different models: LightGBM, XGBoost, Random Forest and a Neural Network.
+
+We have found that LightGBM, XGBoost and Random Forest substantially improve baseline performance based on the AUC metric. In contrast, the neural network was not able to approach the baseline results.
+
+Regarding the MAE metric, we see that only LightGBM is capable of improving the baseline, while XGBoost is not. After developing the model, I believe that the MAE metric is not the most appropriate for the problem due to having such an unbalanced target. 
+
+Finally, we have built a model that consists of combining the LightGBM and XGBoost models. 
+
+We followed the general outline of a machine learning project:
+
+* Understand the problem and the data
+* Data cleaning and formatting (this was mostly done for us)
+* Exploratory Data Analysis
+* Baseline model
+* Improved models
+* Model Merging
+* Model interpretation (just a little)
+
+
 ### Improvement
-In this section, you will need to provide discussion as to how one aspect of the implementation you designed could be improved. As an example, consider ways your implementation can be made more general, and what would need to be modified. You do not need to make this improvement, but the potential solutions resulting from these changes are considered and compared/contrasted to your current solution. Questions to ask yourself when writing this section:
-- _Are there further improvements that could be made on the algorithms or techniques you used in this project?_
-- _Were there algorithms or techniques you researched that you did not know how to implement, but would consider using if you knew how?_
-- _If you used your final solution as the new benchmark, do you think an even better solution exists?_
+As we can see from Kaggle's LeaderBoard, our models are still far from approaching the best models in the competition. That is why we still have a long way to go in this project. 
 
------------
+In our view, these are the 4 main points for improvement:
 
-**Before submitting, ask yourself. . .**
-
-- Does the project report you’ve written follow a well-organized structure similar to that of the project template?
-- Is each section (particularly **Analysis** and **Methodology**) written in a clear, concise and specific fashion? Are there any ambiguous terms or phrases that need clarification?
-- Would the intended audience of your project be able to understand your analysis, methods, and results?
-- Have you properly proof-read your project report to assure there are minimal grammatical and spelling mistakes?
-- Are all the resources used for this project correctly cited and referenced?
-- Is the code that implements your solution easily readable and properly commented?
-- Does the code execute without error and produce results similar to those reported?
+* As you can see, during the development of the project we have only 3 of the 6 datasets provided in the Kaggle competition. The main improvement would be to include the other 3 datasets in the development of the models and build variables with them.
+* We will need to think about whatother domain knowledge features may be useful for this problem (or we should consult someone who knows more about the financial industry!
+* Systematic search for parameters: GridSearchCV. GridSearchCV exhaustively generates candidates from a grid of parameter values specified with the param_grid parameter.
+* Neural Network Architecture: During the development of the project we have only used a neural network architecture. A point of improvement would be to try different neurolane network architectures.
