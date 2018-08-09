@@ -49,7 +49,7 @@ Moreover, we are provided with the definitions of all the columns (in HomeCredit
 * The dataset contains 1.670.214 rows with 37 columns
 
 ### Problem Statement
-The problem is to determine the return capacity of Home Credit's clients using a wide variety of data such as: Static data for all previous applications, previous credits provided by other financial institutions that were reported to Credit Bureau, credit card balances,...
+The problem is to determine the return capacity of Home Credit's clients using a wide variety of data such as: Static data for all previous applications, previous credits provided by other financial institutions that were reported to Credit Bureau, ...
 
 Doing so will ensure that clients capable of repayment are not rejected and that loans are given with a principal, maturity, and repayment calendar that will empower their clients to be successful.
 
@@ -269,7 +269,7 @@ The correlation coefficient is not the greatest method to represent "relevance" 
 * .60-.79 “strong”
 * .80-1.0 “very strong”
 
-Let's take a look at some of more significant correlations: the DAYS_BIRTH is the most positive correlation. (except for TARGET because the correlation of a variable with itself is always 1!) Looking at the documentation, DAYS_BIRTH is the age in days of the client at the time of the loan in negative days (for whatever reason!). The correlation is positive, but the value of this feature is actually negative, meaning that as the client gets older, they are less likely to default on their loan (ie the target == 0). That's a little confusing, so we will take the absolute value of the feature and then the correlation will be negative.
+Let's take a look at some of more significant correlations: the DAYS_BIRTH is the most positive correlation. Looking at the documentation, DAYS_BIRTH is the age in days of the client at the time of the loan in negative days (for whatever reason!). The correlation is positive, but the value of this feature is actually negative, meaning that as the client gets older, they are less likely to default on their loan (ie the target == 0).
 
 The 3 variables with the strongest negative correlations with the target are EXT_SOURCE_1, EXT_SOURCE_2, and EXT_SOURCE_3. According to the documentation, these features represent a "normalized score from external data source". I'm not sure what this exactly means, but it may be a cumulative sort of credit rating made using numerous sources of data.
 
@@ -373,8 +373,6 @@ We will use LogisticRegressionfrom Scikit-Learn for our first model. The only ch
 
 Here we use the familiar Scikit-Learn modeling syntax: we first create the model, then we train the model using .fit and then we make predictions on the testing data using .predict_proba (remember that we want probabilities and not a 0 or 1).
 
-We want to predict the probabilities of not paying a loan, so we use the model predict.proba method. This returns an m x 2 array where m is the number of observations. The first column is the probability of the target being 0 and the second column is the probability of the target being 1 (so for a single row, the two columns must sum to 1). We want the probability the loan is not repaid, so we will select the second column.
-
 Our baseline scores are:
 
 * ROC AUC: 0.71
@@ -392,9 +390,12 @@ Next we can look at the number and percentage of missing values in each column. 
 ![image](resources/images/target_distribution.png)
 
 When it comes time to build our machine learning models, we will have to:
+
 a. Fill in these missing values (known as imputation). 
+
   * For categorical and discrete features: use 'mode' in SimpleImputer
   * For continuous features: use 'median' in SimpleImputer
+
 b. For models such as XGBoost that can handle missing values with no need for imputation. 
 c. Another option would be to drop columns with a high percentage of missing values, although it is impossible to know ahead of time if these columns will be helpful to our model. Therefore, we will keep all of the columns for now.
 
@@ -465,12 +466,7 @@ x' is the normalized value.
 
 
 ### Implementation
-In this section, the process for which metrics, algorithms, and techniques that you implemented for the given data will need to be clearly documented. It should be abundantly clear how the implementation was carried out, and discussion should be made regarding any complications that occurred during this process. Questions to ask yourself when writing this section:
-- _Is it made clear how the algorithms and techniques were implemented with the given datasets or input data?_
-- _Were there any complications with the original metrics or techniques that required changing prior to acquiring a solution?_
-- _Was there any part of the coding process (e.g., writing complicated functions) that should be documented?_
-
-To carry out the development of the models and all the preprocessing of the data, basically two libraries have been used:
+To carry out the development of the models and all the preprocessing of the data, basically this libraries have been used:
 
 * [scikit-learn](http://scikit-learn.org/stable/)
 * [LightGBM](https://github.com/Microsoft/LightGBM)
@@ -483,7 +479,8 @@ Additionally, libraries have been used to create graphs:
 * [seaborn](https://seaborn.pydata.org/)
 * [plotly](https://plot.ly/)
 
-In order to simplify the testing of the models and to test the hyperparameters of the models, functions have been developed to encapsulate the training phase. For this purpose, an input parameter is used for the particular parameters of the model to be trained. For example, the following function has been developed for LightGBM:
+In order to simplify the testing of the models and to test the hyperparameters of the models, functions have been developed to encapsulate the training phase. A first function encapsulates the kFolds preparation for CrossValidation and calculates the AUC and MAE metrics for each set.
+
 
 ```python
 from sklearn.model_selection import KFold
@@ -639,7 +636,11 @@ def model(model_func, features, test_features, params, validation_features=None,
     return feature_importances, metrics, validation_metrics
 
 import lightgbm as lgb
+```
 
+A second specific function for each model encapsulates model definition, training and evaluation in the test and evaluation sets. To be able to train models with different parameters, an input parameter is used to specify them. For example, the following function has been developed for LightGBM:
+
+```python
 def train_LGBMClassifier(train_features, train_labels, valid_features, valid_labels, test_features, validation_features, params):
     # Create the model
     model = lgb.LGBMClassifier(application="binary", boosting_type=params["boosting"],
@@ -680,7 +681,7 @@ def train_LGBMClassifier(train_features, train_labels, valid_features, valid_lab
 
 ### Refinement
 
-En una primera fase del entrenamiento de cada modelo, se ha realizado con un conjunto discreto de parametros. Esto nos ha permitido aprender como le afectan los parametros al comportamiento del modelo. Por ejemplo, para el modelo de lightGBM inicie el entrenamiento con el siguiente conjunto de parametros:
+In the first phase of the training of each model, it has been carried out with a discreet set of parameters. This has allowed us to learn how parameters affect the model's behavior. For example, for the lightGBM model, start the training with the following set of parameters:
 
 ```python
 lgbm_params = {
@@ -709,7 +710,7 @@ Esto nos proporcionaba el siguiente resultado:
 |      4 |  0.877004 |  0.130056 |  0.746761 |  0.140161 |
 |overall |  0.895164 |  0.127249 |  0.743577 |  0.174889 |
 
-Como podemos observar entre el los valores de training y de test hay mucha diferencia para ambas métricas (auc y mae). Esto significa que estamos sobreajustando el modelo y que generaliza mal. Para intentar evitarlo, vamos a aumentar los parametros de reg_alpha, reg_lambda y num_leaves.
+As we can see between the training and test values there is a lot of difference for both metrics (auc and mae). This means that we are over-adjusting the model and that it is spreading badly. To try to avoid this, we are going to increase the parameters of reg_alpha, reg_lambda and num_leaves.
 
 ```python
 lgbm_params = {
@@ -736,7 +737,7 @@ lgbm_params = {
 |      4 |  0.841988 |  0.130212 |  0.748010 |  0.137620 |
 |overall |  0.857737 |  0.128491 |  0.748855 |  0.136097 |
 
-Observamos que hemos reducido el sobreajuste pero sigue siendo excesivo. Vaos a reducir el max_depth a ver como le afecta al modelo:
+We note that we have reduced the over-adjustment but it is still excessive. We are going to reduce the max_depth to see how it affects the model:
 
 ```python
 lgbm_params = {
@@ -753,6 +754,7 @@ lgbm_params = {
     "early_stopping_rounds": 200
 }
 ```
+
 |   fold | train auc | train mae |  test auc |  test mae |
 |-------:|----------:|----------:|----------:|----------:|
 |      0 |  0.809402 |  0.133003 |  0.756757 |  0.135961 |
@@ -762,7 +764,7 @@ lgbm_params = {
 |      4 |  0.802916 |  0.132993 |  0.749148 |  0.137526 |
 |overall |  0.806948 |  0.133036 |  0.751054 |  0.136603 |
 
-Con esto conseguimos reducir bastante el sobreajuste y mejorar los resultados en el conjunto de test. Vamos a seguir aumentando el reg_alpha y reg_lambda para ver como se comporta el modelo
+With this we manage to reduce considerably the over-adjustment and improve the results in the test set. Let's keep increasing reg_alpha and reg_lambda to see how the model behaves
 
 ```python
 lgbm_params = {
@@ -789,7 +791,7 @@ lgbm_params = {
 |      4 |  0.786282 |  0.133990 |  0.750687 |  0.137447 |
 |overall |  0.808569 |  0.132187 |  0.753242 |  0.136055 |
 
-Con estos nuevos parametros sigue mejorando el modelo y reduciendose el sobreajuste. Aumentemos un poco más reg_alpha y reg_lambda
+With these new parameters the model continues to improve and the over-adjustment is reduced. Let's increase reg_alpha and reg_lambda a little more
 
 ```python
 lgbm_params = {
@@ -816,52 +818,11 @@ lgbm_params = {
 |      4 |  0.763035 |  0.135850 |  0.747742 |  0.137952 |
 |overall |  0.763109 |  0.136342 |  0.749405 |  0.137169 |
 
-Estos parametros eliminan el sobre ajuste del modelo pero nos está empezando a reducir el ajuste del modelo en el conjunto de test. Es por ello que nos quedaremos con los parametros previos como el conjunto de parametros optimo.
+These parameters eliminate model over-fitting but are beginning to reduce the model fit in the test set. That is why we will keep the previous parameters as the optimal set of parameters.
 
-La idea inicial era realizar un GridSearch alrededor de los parametros optimos para intentar mejorarlos de forma sistemática. Debido a la falta de tiempo no lo voy a poder hacer y será una mejora que podriamos aplicar al proyecto en fases posteriores. Esta búsqueda se podria realizar con Cross Validation de 5 Fold para el LightGBM con el siguiente código:
+The initial idea was to make a GridSearch around the optimal parameters to try to improve them systematically. Due to the lack of time I will not be able to do it and it will be an improvement that we could apply to the project in later phases. 
 
-```python
-param_grid = {
-    "boosting": ["gbdt", "dart"],
-    "application":["binary"],
-    'learning_rate': [0.01, 0.1, 1, 10],
-    'reg_alpha': [0.01, 0.1, 1],
-    'reg_lambda': [0.01, 0.1, 1],
-    "n_estimators": [10000],
-    "max_depth": [3, 5, 7],
-    'num_leaves': [31, 127],
-    "max_bin": [225],
-    'feature_fraction': [0.5, 1.0],
-    'bagging_fraction': [0.75, 0.95], 
-    "drop_rate": [0.02]
-    }
-
-lgbc_fit_params = {
-    "eval_names": ['valid', 'train'],
-    "eval_set" : [[test, test_labels]],
-    'eval_metric' : ['auc', 'mae'], # string, list of strings, callable or None, optional (default=None)
-    'early_stopping_rounds' : 200, # int or None, optional (default=None)
-    'verbose': 200
-}
-
-lgb_Classifier = lgb.LGBMClassifier(
-                         bagging_freq=5,
-                         eval_metric=['auc', 'mae'],
-                         subsample = 0.8, n_jobs = -1, random_state = 50)
-
-gsearch = GridSearchCV(estimator=lgb_Classifier, 
-                       param_grid=param_grid, 
-                       fit_params=lgbc_fit_params,
-                       cv=k_fold,
-                       return_train_score=True,
-                       scoring='roc_auc') 
-
-lgb_model = gsearch.fit(X=train, 
-                        y=train_labels)
-
-```
-
-Una vez determinado el conjunto de parametros que mejor funcionan para cada modelo, se realiza un nuevo entrenamiento con estos pero reduciendo el learning_rate y aumentando el early_stopping_round. Esto nos permite conseguir un modelo más preciso:
+Once the set of parameters that work best for each model has been determined, a new training session is carried out with these but reducing the learning_rate and increasing the early_stopping_round. This allows us to achieve a more precise model:
 
 ```python
 lgbm_params = {
@@ -888,17 +849,22 @@ lgbm_params = {
 |      4 |  0.799670 |  0.132761 |  0.750934 |  0.137081 |
 |overall |  0.813913 |  0.131793 |  0.753863 |  0.135971 |
 
-
+This procedure has been repeated for the remaining three Algorithms: XGBoost, Random Forest and Neural Networks.
 
 
 ## IV. Results
 
 ### Model Evaluation and Validation
-In this section, the final model and any supporting qualities should be evaluated in detail. It should be clear how the final model was derived and why this model was chosen. In addition, some type of analysis should be used to validate the robustness of this model and its solution, such as manipulating the input data or environment to see how the model’s solution is affected (this is called sensitivity analysis). Questions to ask yourself when writing this section:
-- _Is the final model reasonable and aligning with solution expectations? Are the final parameters of the model appropriate?_
-- _Has the final model been tested with various inputs to evaluate whether the model generalizes well to unseen data?_
-- _Is the model robust enough for the problem? Do small perturbations (changes) in training data or the input space greatly affect the results?_
-- _Can results found from the model be trusted?_
+
+The data set was divided into three sets at the beginning of the development:
+
+* Training: 70% Training of the models with the different hyperparameters
+* Test: 15% Test of the trained models and selection of the optimal parameters for each model
+* Validation: 15% Validation of the trained model with the optimal parameters
+
+The use of a validation set allows us to check that the final model is not overfitting the test set and that it therefore generalizes well to data never seen before.
+
+We have trained the models with 5-fold Cross Validation. This allows us assessing how the results of a statistical analysis will generalize to an independent data set.
 
 #### LightGBM
 
@@ -970,8 +936,22 @@ Feature Importance
 
 #### Neural Network
 
+Model for Train and Test sets:
+
+|   fold | train auc | train mae |  test auc |  test mae |
+|-------:|----------:|----------:|----------:|----------:|
+|      0 |  0.5912   |  0.1469   |  0.5913   |  0.1453   |
+
 
 #### LightGBM + XGBoost
+
+As we can see, the models that best fit both metrics (AUC and MAE) are LightGBM and XGBoost.
+
+Random Forest observed that the AUC metric behaves well, at the level of the two previous ones, but that the MAE metric almost doubles. This is indicating that Random Forest is detecting more false positives (predicts 1 when it is 0) than LightGBM and XGBoost.
+
+In contrast, the neural network has an MAE similar to XGBoost and LightGBM, but a very low AUC, even worse than the Logistic regression. This indicates that the neural network is commenting on many false negatives (predicts 0 when it is 1)
+
+Although our initial idea was to build a final model assembling the 3 best ones, seeing the results, we believe that the ideal is that our final model is composed only of the two best ones: LightGBM and XGBoost.
 
 |   fold | test auc | test mae | validation auc | validation mae |
 |-------:|----------:|----------:|----------:|----------:|
@@ -985,27 +965,17 @@ Feature Importance
 
 
 ### Justification
-In this section, your model’s final solution and its results should be compared to the benchmark you established earlier in the project using some type of statistical analysis. You should also justify whether these results and the solution are significant enough to have solved the problem posed in the project. Questions to ask yourself when writing this section:
-- _Are the final results found stronger than the benchmark result reported earlier?_
-- _Have you thoroughly analyzed and discussed the final solution?_
-- _Is the final solution significant enough to have solved the problem?_
+
+Analyzing the results of the LightGBM + XGBoost model we can conclude that the model obtains significantly better results than the Benchmark in AUC metric. As for MAE, it is slightly above the benchmark. This indicates that it is committing more false negatives than the benchmark.
+
+This has led us to think more carefully about whether the MAE metric was the right one for this problem. The MAE is the average vertical distance between predicted versus observed. As our target variable is very balanced (8% of 1), a model that always predicts zero has a MAE of 0.08. All models developed in this project have a much higher MAE, including the benchmark. This indicates that models are tending to detect 1 when they are actually a 0. 
+
+Comparing the results of our models with Kaggle's LeaderBoard, we see that we are still a long way from the top positions. This indicates that there is still much room for improvement in the models.
 
 
 ## V. Conclusion
 
-### Free-Form Visualization
-In this section, you will need to provide some form of visualization that emphasizes an important quality about the project. It is much more free-form, but should reasonably support a significant result or characteristic about the problem that you want to discuss. Questions to ask yourself when writing this section:
-- _Have you visualized a relevant or important quality about the problem, dataset, input data, or results?_
-- _Is the visualization thoroughly analyzed and discussed?_
-- _If a plot is provided, are the axes, title, and datum clearly defined?_
-
 ### Reflection
-In this section, you will summarize the entire end-to-end problem solution and discuss one or two particular aspects of the project you found interesting or difficult. You are expected to reflect on the project as a whole to show that you have a firm understanding of the entire process employed in your work. Questions to ask yourself when writing this section:
-- _Have you thoroughly summarized the entire process you used for this project?_
-- _Were there any interesting aspects of the project?_
-- _Were there any difficult aspects of the project?_
-- _Does the final model and solution fit your expectations for the problem, and should it be used in a general setting to solve these types of problems?_
-
 In this project, we saw how to get started with a machine learning problem. We first made sure to understand the data, our task, and the metric by which our submissions will be judged. Then, we performed a EDA to try and identify relationships, trends, or anomalies that may help our modeling. Along the way, we performed necessary preprocessing steps such as encoding categorical variables, imputing missing values, and scaling features to a range. Then, we constructed new features out of the existing data to see if doing so could help our model.
 
 Once the data exploration, data preparation, and feature engineering was complete, we implemented a baseline model upon which we hope to improve. 
@@ -1032,9 +1002,55 @@ We followed the general outline of a machine learning project:
 ### Improvement
 As we can see from Kaggle's LeaderBoard, our models are still far from approaching the best models in the competition. That is why we still have a long way to go in this project. 
 
-In our view, these are the 4 main points for improvement:
+In our view, these are the 6 main points for improvement:
 
 * As you can see, during the development of the project we have only 3 of the 6 datasets provided in the Kaggle competition. The main improvement would be to include the other 3 datasets in the development of the models and build variables with them.
 * We will need to think about whatother domain knowledge features may be useful for this problem (or we should consult someone who knows more about the financial industry!
-* Systematic search for parameters: GridSearchCV. GridSearchCV exhaustively generates candidates from a grid of parameter values specified with the param_grid parameter.
+* Use of unbalancing techniques. Try Oversampling and undersampling to adjust the class distribution of a data set (i.e. the ratio between the different classes/categories represented).
+* Use of anomaly detection techniques. A different approach would be to view the problem as an anomaly detection problem, where the 1 in the set are anomalies within the 0. 
+* Systematic search for parameters: GridSearchCV. GridSearchCV exhaustively generates candidates from a grid of parameter values specified with the param_grid parameter. This search could be performed with Cross Validation of 5 Fold for LightGBM with the following code:
+
+
+```python
+param_grid = {
+    "boosting": ["gbdt", "dart"],
+    "application":["binary"],
+    'learning_rate': [0.01, 0.1, 1, 10],
+    'reg_alpha': [0.01, 0.1, 1],
+    'reg_lambda': [0.01, 0.1, 1],
+    "n_estimators": [10000],
+    "max_depth": [3, 5, 7],
+    'num_leaves': [31, 127],
+    "max_bin": [225],
+    'feature_fraction': [0.5, 1.0],
+    'bagging_fraction': [0.75, 0.95], 
+    "drop_rate": [0.02]
+    }
+
+lgbc_fit_params = {
+    "eval_names": ['valid', 'train'],
+    "eval_set" : [[test, test_labels]],
+    'eval_metric' : ['auc', 'mae'], # string, list of strings, callable or None, optional (default=None)
+    'early_stopping_rounds' : 200, # int or None, optional (default=None)
+    'verbose': 200
+}
+
+lgb_Classifier = lgb.LGBMClassifier(
+                         bagging_freq=5,
+                         eval_metric=['auc', 'mae'],
+                         subsample = 0.8, n_jobs = -1, random_state = 50)
+
+gsearch = GridSearchCV(estimator=lgb_Classifier, 
+                       param_grid=param_grid, 
+                       fit_params=lgbc_fit_params,
+                       cv=k_fold,
+                       return_train_score=True,
+                       scoring='roc_auc') 
+
+lgb_model = gsearch.fit(X=train, 
+                        y=train_labels)
+
+```
+
 * Neural Network Architecture: During the development of the project we have only used a neural network architecture. A point of improvement would be to try different neurolane network architectures.
+
